@@ -1,0 +1,164 @@
+Step 1: Create Simple Node.js Express Application (locally)
+Bash#
+1. Create project folder
+mkdir node-azure-demo
+cd node-azure-demo
+
+# 2. Initialize Node.js project
+npm init -y
+
+# 3. Install Express
+npm install express
+Create file app.js (very important → use process.env.PORT!)
+JavaScriptconst express = require('express');
+const app = express();
+
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>Hello from Node.js running on Azure App Service! 🚀</h1>
+    <p>This app was deployed using Azure Pipelines CI/CD</p>
+    <p>Current time: ${new Date().toLocaleString()}</p>
+  `);
+});
+
+app.listen(port, () => {
+  console.log(`Server is running → http://localhost:${port}`);
+});
+Update package.json → add start script:
+JSON{
+  "name": "node-azure-demo",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}
+Test locally:
+Bashnpm start
+Open browser → http://localhost:3000
+
+Step 2: Put Code in Git Repository
+Option A - Recommended for learning (Azure Repos)
+
+Go to dev.azure.com → Create new Organization (if you don't have one)
+Create new Project (e.g. Node-CICD-Lab)
+Go to Repos → copy the clone URL
+In your project folder:
+
+Bashgit init
+git add .
+git commit -m "Initial simple Node.js express app"
+git remote add origin https://dev.azure.com/your-org/Node-CICD-Lab/_git/Node-CICD-Lab
+git branch -M main
+git push -u origin main
+Option B — Use GitHub (also fine)
+Step 3: Create Azure App Service (Web App)
+Go to portal.azure.com
+
+Click Create a resource → Web App- runtime stack: Node 22 LTS
+Click Review + create → Create
+Wait 2–4 minutes → Go to resource → copy URL
+
+It will show default Azure page for now.
+Step 4: Create Service Connection (Azure DevOps → Azure)
+
+In Azure DevOps → your project → Project Settings (bottom left)
+Service connections → New service connection
+Choose Azure Resource Manager → Service principal (automatic)
+Sign in → select your Subscription + Resource Group (rg-node-lab)
+Give name: azure-sub-connection
+Save
+
+Step 5: Create Azure Pipeline (CI/CD)- starter pipeline
+yaml file:-------------------
+
+# Node.js Express Web App to Linux on Azure
+# Build a Node.js Express app and deploy it to Azure as a Linux web app.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://learn.microsoft.com/azure/devops/pipelines/ecosystems/javascript
+
+trigger:
+- main
+
+variables:
+  # ── CHANGE THESE ────────────────────────────────────────────────
+  azureSubscription: 'azure-sub-connection'          # ← your service connection name
+  webAppName: 'satyamwebapp'                         # ← your App Service name
+  # ────────────────────────────────────────────────────────────────
+
+  # You usually don't need to change these
+  vmImageName: 'ubuntu-latest'
+  nodeVersion: '20.x'                                # or '18.x' / '22.x' if needed
+
+pool:
+  vmImage: $(vmImageName)   //here name:Default if u are using self hosted agent
+
+stages:
+- stage: Build
+  displayName: Build stage
+  jobs:
+  - job: Build
+    displayName: Build
+    steps:
+
+    - task: NodeTool@0
+      inputs:
+        versionSpec: $(nodeVersion)
+      displayName: 'Install Node.js'
+
+    - script: |
+        npm install
+        npm run build --if-present
+      displayName: 'npm install and build'
+
+    - task: ArchiveFiles@2
+      displayName: 'Archive files'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+        includeRootFolder: false                     # Important for Node.js apps
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        replaceExistingArchive: true
+
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifact: 'drop'
+        publishLocation: 'pipeline'
+      displayName: 'Publish Artifact: drop'
+
+- stage: Deploy
+  displayName: Deploy stage
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy
+    environment: 'production'                        # optional – can remove or change
+    pool:
+      vmImage: $(vmImageName) //name:Default if u are using self hosted agent
+    strategy:
+      runOnce:
+        deploy:
+
+          steps:
+
+          - task: DownloadPipelineArtifact@2
+            displayName: '📥 Download Artifact'
+            inputs:
+              artifactName: 'drop'
+              downloadPath: '$(Pipeline.Workspace)/drop'
+
+          - task: AzureWebApp@1
+            displayName: '🚀 Deploy to Azure Web App'
+            inputs:
+              azureSubscription: $(azureSubscription)
+              appType: webAppLinux
+              appName: $(webAppName)
+              runtimeStack: 'NODE|20LTS'               # ← match your App Service Node version
+              package: '$(Pipeline.Workspace)/drop/*.zip'   # wildcard = safer & fixes most issues
