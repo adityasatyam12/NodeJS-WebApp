@@ -69,10 +69,12 @@ Step 4: Create Service Connection (Azure DevOps → Azure)
 
 In Azure DevOps → your project → Project Settings (bottom left)
 Service connections → New service connection
-Choose Azure Resource Manager → Service principal (automatic)
+Choose Azure Resource Manager → Service principal (automatic) // choose manual and create serice principal in azure portal through app registrations if u have some restrictions
 Sign in → select your Subscription + Resource Group (rg-node-lab)
 Give name: azure-sub-connection
 Save
+
+//use self hosted agent if u dont have parrallelism in azure devops free tier
 
 Step 5: Create Azure Pipeline (CI/CD)- starter pipeline
 yaml file:-------------------
